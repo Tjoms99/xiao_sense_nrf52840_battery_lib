@@ -7,7 +7,7 @@ LOG_MODULE_REGISTER(main, LOG_LEVEL_INF);
 
 struct k_work battery_work;
 
-void battery_work_handler(struct k_work *work_tem)
+void battery_work_handler(struct k_work *work_item)
 {
 	float battery_volt = 0;
 	int battery_percentage = 0;
