@@ -1,33 +1,23 @@
-.. _hello_world:
+.. _xiao_sense_nrf52840_battery_lib:
 
-Hello World
+XIAO BLE Sense (nRF52840) battery library
 ###########
 
 Overview
 ********
 
-A simple sample that can be used with any :ref:`supported board <boards>` and
-prints "Hello World" to the console.
+A library that can be used with the XIAO BLE Sense board to read the battery voltage, set fast or slow charging,
+enable/disable charging,
+and get the capacity of a 3.7V LiPo battery in percent.
+The library uses the zephyr RTOS. For more information about Zephyr, check out the getting started guide: https://docs.zephyrproject.org/latest/develop/getting_started/index.html.
 
-Building and Running
+Programming and Debugging
 ********************
 
-This application can be built and executed on QEMU as follows:
+The XIAO BLE ships with the Adafruit nRF52 Bootloader 5 which supports flashing using UF2.
 
-.. zephyr-app-commands::
-   :zephyr-app: samples/hello_world
-   :host-os: unix
-   :board: qemu_x86
-   :goals: run
-   :compact:
-
-To build for another board, change "qemu_x86" above to that board's name.
-
-Sample Output
+UF2 Flashing
 =============
-
-.. code-block:: console
-
-    Hello World! x86
-
-Exit QEMU by pressing :kbd:`CTRL+A` :kbd:`x`.
+To enter the bootloader, connect the USB port of the XIAO BLE to your computer and double-tap the reset button to the left of the USB connector.
+A mass storage device named XIAO BLE should appear on the computer. Using the command line, or your file manager, copy the build/zephyr/zephyr.uf2 file from your build to the base of the XIAO BLE mass storage device.
+The XIAO BLE will automatically reset and launch the newly flashed application. For more information, check out the overview here:  https://docs.zephyrproject.org/latest/boards/arm/xiao_ble/doc/index.html.
