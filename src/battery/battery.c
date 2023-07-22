@@ -74,7 +74,7 @@ static uint8_t is_initialized = false;
 
 static int battery_enable_read()
 {
-    return gpio_pin_set(gpio_battery_dev, GPIO_BATTERY_READ_ENABLE, 0);
+    return gpio_pin_set(gpio_battery_dev, GPIO_BATTERY_READ_ENABLE, 1);
 }
 
 int battery_set_fast_charge()
@@ -210,8 +210,8 @@ int battery_init()
         return -EIO;
     }
 
-    ret |= gpio_pin_configure(gpio_battery_dev, GPIO_BATTERY_CHARGING_ENABLE, GPIO_OUTPUT);
-    ret |= gpio_pin_configure(gpio_battery_dev, GPIO_BATTERY_READ_ENABLE, GPIO_OUTPUT);
+    ret |= gpio_pin_configure(gpio_battery_dev, GPIO_BATTERY_CHARGING_ENABLE, GPIO_OUTPUT | GPIO_ACTIVE_LOW);
+    ret |= gpio_pin_configure(gpio_battery_dev, GPIO_BATTERY_READ_ENABLE, GPIO_OUTPUT | GPIO_ACTIVE_LOW);
     ret |= gpio_pin_configure(gpio_battery_dev, GPIO_BATTERY_CHARGE_SPEED, GPIO_OUTPUT | GPIO_ACTIVE_LOW);
 
     if (ret)
