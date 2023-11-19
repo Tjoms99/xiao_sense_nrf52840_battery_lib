@@ -44,7 +44,8 @@ struct adc_sequence sequence = {
     .channels = BIT(ADC_CHANNEL),
     .buffer = sample_buffer,
     .buffer_size = sizeof(sample_buffer),
-    .resolution = ADC_RESOLUTION};
+    .resolution = ADC_RESOLUTION
+};
 
 typedef struct
 {
@@ -216,7 +217,7 @@ int battery_init()
 
     if (ret)
     {
-        LOG_ERR("GPIO configure failed123!");
+        LOG_ERR("GPIO configure failed!");
         return ret;
     }
 
