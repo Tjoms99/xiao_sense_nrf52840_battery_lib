@@ -7,7 +7,7 @@
 </p>
 
 ## Overview
-This library is designed to manage the battery charging functionality of the XIAO BLE Sense board. It supports the following features for a 3.7V LiPo battery:
+This library is designed to manage the battery charging functionality of the XIAO BLE and XIAO BLE Sense board. It supports the following features for a 3.7V LiPo battery:
 
 - Reading battery voltage.
 - Setting charging modes (fast or slow).
