@@ -1,3 +1,19 @@
+/*
+ * Copyright 2024 Marcus Alexander Tjomsaas
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 #include "battery.h"
 
 #include <zephyr/kernel.h>
@@ -6,15 +22,19 @@
 #include <zephyr/drivers/gpio.h>
 #include <zephyr/drivers/adc.h>
 #include <zephyr/logging/log.h>
-LOG_MODULE_REGISTER(battery, LOG_LEVEL_DBG);
+LOG_MODULE_REGISTER(battery, LOG_LEVEL_INF);
 
 static const struct device *gpio_battery_dev = DEVICE_DT_GET(DT_NODELABEL(gpio0));
 static const struct device *adc_battery_dev = DEVICE_DT_GET(DT_NODELABEL(adc));
+
+static K_MUTEX_DEFINE(battery_mut);
 
 #define GPIO_BATTERY_CHARGE_SPEED 13
 #define GPIO_BATTERY_CHARGING_ENABLE 17
 #define GPIO_BATTERY_READ_ENABLE 14
 
+// Change this to a higher number for better averages
+// Note that increasing this holds up the thread / ADC for longer.
 #define ADC_TOTAL_SAMPLES 10
 int16_t sample_buffer[ADC_TOTAL_SAMPLES];
 
@@ -44,31 +64,31 @@ struct adc_sequence sequence = {
     .channels = BIT(ADC_CHANNEL),
     .buffer = sample_buffer,
     .buffer_size = sizeof(sample_buffer),
-    .resolution = ADC_RESOLUTION
-};
+    .resolution = ADC_RESOLUTION};
 
 typedef struct
 {
-    float voltage;
-    int percentage;
+    uint16_t voltage;
+    uint8_t percentage;
 } BatteryState;
 
 #define BATTERY_STATES_COUNT 12
 // Assuming LiPo battery.
 // Source: https://forum.evolvapor.com/topic/65565-discharge-profiles-csv-for-2-3-18650-batteries-sony-vtc6-sammy-30q/
+// SHOULD USE YOUR BATTERY'S DATASHEET
 BatteryState battery_states[BATTERY_STATES_COUNT] = {
-    {4.20, 100},
-    {4.16, 99},
-    {4.09, 91},
-    {4.03, 78},
-    {3.89, 63},
-    {3.83, 53},
-    {3.68, 36},
-    {3.66, 35},
-    {3.48, 14},
-    {3.42, 11},
-    {3.15, 1}, // .24
-    {0.00, 0}  // Below safe level
+    {4200, 100},
+    {4160, 99},
+    {4090, 91},
+    {4030, 78},
+    {3890, 63},
+    {3830, 53},
+    {3680, 36},
+    {3660, 35},
+    {3480, 14},
+    {3420, 11},
+    {3150, 1}, // 3240
+    {0000, 0}  // Below safe level
 };
 
 static uint8_t is_initialized = false;
@@ -121,63 +141,64 @@ int battery_charge_stop()
     return gpio_pin_set(gpio_battery_dev, GPIO_BATTERY_CHARGING_ENABLE, 0);
 }
 
-int battery_get_voltage(float *battery_volt)
+int battery_get_millivolt(uint16_t *battery_millivolt)
 {
 
     int ret = 0;
 
-    // Voltage divider circuit
-    const int R1 = 1037; // Originally 1M ohm, calibrated after measuring actual voltage values. Can happen due to resistor tolerances, temperature ect..
-    const int R2 = 510;  // 510K ohm
+    // Voltage divider circuit (Should tune R1 in software if possible)
+    const uint16_t R1 = 1037; // Originally 1M ohm, calibrated after measuring actual voltage values. Can happen due to resistor tolerances, temperature ect..
+    const uint16_t R2 = 510;  // 510K ohm
 
     // ADC measure
-    int32_t adc_vref = adc_ref_internal(adc_battery_dev);
-    int battery_millivolt = 0;
+    uint16_t adc_vref = adc_ref_internal(adc_battery_dev);
     int adc_mv = 0;
 
+    k_mutex_lock(&battery_mut, K_FOREVER);
     ret |= adc_read(adc_battery_dev, &sequence);
+
     if (ret)
     {
         LOG_WRN("ADC read failed (error %d)", ret);
     }
 
     // Get average sample value.
-    for (int sample = 0; sample < ADC_TOTAL_SAMPLES; sample++)
+    for (uint8_t sample = 0; sample < ADC_TOTAL_SAMPLES; sample++)
     {
         adc_mv += sample_buffer[sample]; // ADC value, not millivolt yet.
     }
     adc_mv /= ADC_TOTAL_SAMPLES;
 
-    // Convert sample value to millivolts
+    // Convert ADC value to millivolts
     ret |= adc_raw_to_millivolts(adc_vref, ADC_GAIN, ADC_RESOLUTION, &adc_mv);
 
     // Calculate battery voltage.
-    battery_millivolt = adc_mv * ((R1 + R2) / R2);
-    *battery_volt = (float)battery_millivolt / 1000.0; // From millivolt to volt.
+    *battery_millivolt = adc_mv * ((R1 + R2) / R2);
+    k_mutex_unlock(&battery_mut);
 
-    LOG_DBG("%d mV", battery_millivolt);
+    LOG_DBG("%d mV", *battery_millivolt);
     return ret;
 }
 
-int battery_get_percentage(int *battery_percentage, float battery_voltage)
+int battery_get_percentage(uint8_t *battery_percentage, uint16_t battery_millivolt)
 {
 
     // Ensure voltage is within bounds
-    if (battery_voltage > battery_states[0].voltage)
+    if (battery_millivolt > battery_states[0].voltage)
         *battery_percentage = 100;
-    if (battery_voltage < battery_states[BATTERY_STATES_COUNT - 1].voltage)
+    if (battery_millivolt < battery_states[BATTERY_STATES_COUNT - 1].voltage)
         *battery_percentage = 0;
 
-    for (int i = 0; i < BATTERY_STATES_COUNT - 1; i++)
+    for (uint16_t i = 0; i < BATTERY_STATES_COUNT - 1; i++)
     {
-        // Find the two points battery_voltage is between
-        if (battery_states[i].voltage >= battery_voltage && battery_voltage >= battery_states[i + 1].voltage)
+        // Find the two points battery_millivolt is between
+        if (battery_states[i].voltage >= battery_millivolt && battery_millivolt >= battery_states[i + 1].voltage)
         {
             // Linear interpolation
             *battery_percentage = battery_states[i].percentage +
-                                  ((battery_voltage - battery_states[i].voltage) *
-                                   ((battery_states[i + 1].percentage - battery_states[i].percentage) /
-                                    (battery_states[i + 1].voltage - battery_states[i].voltage)));
+                                  ((float)(battery_millivolt - battery_states[i].voltage) *
+                                   ((float)(battery_states[i + 1].percentage - battery_states[i].percentage) /
+                                    (float)(battery_states[i + 1].voltage - battery_states[i].voltage)));
 
             LOG_DBG("%d %%", *battery_percentage);
             return 0;
