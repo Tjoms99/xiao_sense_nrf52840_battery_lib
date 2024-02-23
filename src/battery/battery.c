@@ -22,15 +22,20 @@
 #include <zephyr/drivers/gpio.h>
 #include <zephyr/drivers/adc.h>
 #include <zephyr/logging/log.h>
+
+//LOG_MODULE_REGISTER(battery, LOG_LEVEL_DBG|LOG_LEVEL_INF);
 LOG_MODULE_REGISTER(battery, LOG_LEVEL_INF);
 
 static const struct device *gpio_battery_dev = DEVICE_DT_GET(DT_NODELABEL(gpio0));
 static const struct device *adc_battery_dev = DEVICE_DT_GET(DT_NODELABEL(adc));
 
 static K_MUTEX_DEFINE(battery_mut);
+static enum_bachacurr max_charge_current_configured;
+static enum_bachast battery_charging;
 
 #define GPIO_BATTERY_CHARGE_SPEED 13
-#define GPIO_BATTERY_CHARGING_ENABLE 17
+//#define GPIO_BATTERY_CHARGING_ENABLE 17
+#define GPIO_BATTERY_CHARGING_STATUS 17
 #define GPIO_BATTERY_READ_ENABLE 14
 
 // Change this to a higher number for better averages
@@ -99,47 +104,26 @@ static int battery_enable_read()
     return gpio_pin_set(gpio_battery_dev, GPIO_BATTERY_READ_ENABLE, 1);
 }
 
-int battery_set_fast_charge()
-{
-    if (!is_initialized)
-    {
-        return -ECANCELED;
-    }
-
-    return gpio_pin_set(gpio_battery_dev, GPIO_BATTERY_CHARGE_SPEED, 1); // FAST charge 100mA
-}
-
-int battery_set_slow_charge()
-{
-    if (!is_initialized)
-    {
-        return -ECANCELED;
-    }
-
-    return gpio_pin_set(gpio_battery_dev, GPIO_BATTERY_CHARGE_SPEED, 0); // SLOW charge 50mA
-}
-
-int battery_charge_start()
-{
+int battery_set_max_charge_current(enum_bachacurr max_charge_current){
     int ret = 0;
-
-    if (!is_initialized)
-    {
-        return -ECANCELED;
+    max_charge_current_configured=max_charge_current;
+    if (max_charge_current==Current0){
+        ret |= gpio_pin_configure(gpio_battery_dev, GPIO_BATTERY_CHARGE_SPEED, GPIO_OUTPUT | GPIO_ACTIVE_HIGH);
+        ret |= gpio_pin_set(gpio_battery_dev, GPIO_BATTERY_CHARGE_SPEED, 1); 
+    }    
+    else if (max_charge_current==Current50){
+        ret |= gpio_pin_configure(gpio_battery_dev, GPIO_BATTERY_CHARGE_SPEED, GPIO_INPUT);
+    }    
+    else if (max_charge_current==Current100){
+        ret |= gpio_pin_configure(gpio_battery_dev, GPIO_BATTERY_CHARGE_SPEED, GPIO_OUTPUT | GPIO_ACTIVE_HIGH);
+        ret |= gpio_pin_set(gpio_battery_dev, GPIO_BATTERY_CHARGE_SPEED, 0); 
     }
-    ret |= battery_enable_read();
-    ret |= gpio_pin_set(gpio_battery_dev, GPIO_BATTERY_CHARGING_ENABLE, 1);
     return ret;
 }
 
-int battery_charge_stop()
-{
-    if (!is_initialized)
-    {
-        return -ECANCELED;
-    }
-
-    return gpio_pin_set(gpio_battery_dev, GPIO_BATTERY_CHARGING_ENABLE, 0);
+void battery_get_charging_status(enum_bachast *battery_charging_status){
+    *battery_charging_status=gpio_pin_get(gpio_battery_dev, GPIO_BATTERY_CHARGING_STATUS);
+    LOG_DBG("battery_get_charging_satus (Status %d \n)", *battery_charging_status);
 }
 
 int battery_get_millivolt(uint16_t *battery_millivolt)
@@ -156,6 +140,11 @@ int battery_get_millivolt(uint16_t *battery_millivolt)
     int adc_mv = 0;
 
     k_mutex_lock(&battery_mut, K_FOREVER);
+    battery_get_charging_status (&battery_charging);
+    if (battery_charging==Charging){
+        ret |= gpio_pin_configure(gpio_battery_dev, GPIO_BATTERY_CHARGE_SPEED, GPIO_OUTPUT | GPIO_ACTIVE_HIGH);  // disable charge current for measurement
+        ret |= gpio_pin_set(gpio_battery_dev, GPIO_BATTERY_CHARGE_SPEED, 1);   
+    }                                  //
     ret |= adc_read(adc_battery_dev, &sequence);
 
     if (ret)
@@ -176,7 +165,9 @@ int battery_get_millivolt(uint16_t *battery_millivolt)
     // Calculate battery voltage.
     *battery_millivolt = adc_mv * ((R1 + R2) / R2);
     k_mutex_unlock(&battery_mut);
-
+    if (battery_charging==Charging){
+        battery_set_max_charge_current(max_charge_current_configured);                                      // restore charge current setting after measurement
+    }
     LOG_DBG("%d mV", *battery_millivolt);
     return ret;
 }
@@ -233,9 +224,8 @@ int battery_init()
         return -EIO;
     }
 
-    ret |= gpio_pin_configure(gpio_battery_dev, GPIO_BATTERY_CHARGING_ENABLE, GPIO_OUTPUT | GPIO_ACTIVE_LOW);
+    ret |= gpio_pin_configure(gpio_battery_dev, GPIO_BATTERY_CHARGING_STATUS, GPIO_INPUT |GPIO_ACTIVE_LOW |GPIO_PULL_UP);
     ret |= gpio_pin_configure(gpio_battery_dev, GPIO_BATTERY_READ_ENABLE, GPIO_OUTPUT | GPIO_ACTIVE_LOW);
-    ret |= gpio_pin_configure(gpio_battery_dev, GPIO_BATTERY_CHARGE_SPEED, GPIO_OUTPUT | GPIO_ACTIVE_LOW);
 
     if (ret)
     {
@@ -253,7 +243,8 @@ int battery_init()
     LOG_INF("Initialized");
 
     ret |= battery_enable_read();
-    ret |= battery_set_fast_charge();
+    ret |= battery_set_max_charge_current(Current50);
+
 
     return ret;
 }

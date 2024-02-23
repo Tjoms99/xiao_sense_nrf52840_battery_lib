@@ -19,35 +19,46 @@
 #include <stdint.h>
 #include <zephyr/kernel.h>
 #include <zephyr/logging/log.h>
+#include <zephyr/drivers/gpio.h>
+
+//LOG_MODULE_REGISTER(main, LOG_LEVEL_DBG|LOG_LEVEL_INF);
 LOG_MODULE_REGISTER(main, LOG_LEVEL_INF);
 
+#define GPIO_LED_RED      	26
+#define GPIO_LED_GREEN      30
+#define GPIO_LED_BLUE      	6
+
 struct k_work battery_work;
+const struct device *gpio0_dev = DEVICE_DT_GET(DT_NODELABEL(gpio0));
+int i=0;
 
 void battery_work_handler(struct k_work *work_item)
 {
 	uint16_t battery_millivolt = 0;
 	uint8_t battery_percentage = 0;
+	enum_bachast batt_status;
 
 	battery_get_millivolt(&battery_millivolt);
 	battery_get_percentage(&battery_percentage, battery_millivolt);
+	battery_get_charging_status(&batt_status);
 
-	LOG_INF("Battery at %d mV (capacity %d%%)", battery_millivolt, battery_percentage);
+	LOG_INF("Battery at %d mV (capacity %d%%), charging = %d  %d", battery_millivolt, battery_percentage, batt_status,i);
 }
 
 int main(void)
 {
 	int ret = 0;
 	k_msleep(1000); // Gives time for the terminal to connect to catch LOG's
+	gpio_pin_configure(gpio0_dev,GPIO_LED_RED,GPIO_OUTPUT|GPIO_ACTIVE_LOW);
+	gpio_pin_configure(gpio0_dev,GPIO_LED_GREEN,GPIO_OUTPUT|GPIO_ACTIVE_LOW);
+	gpio_pin_configure(gpio0_dev,GPIO_LED_BLUE,GPIO_OUTPUT|GPIO_ACTIVE_LOW);
 
 	ret |= battery_init();
-	ret |= battery_charge_start();
 
-	if (ret)
-	{
+	if (ret)	{
 		LOG_ERR("Failed to initialize");
 	}
-	else
-	{
+	else	{
 		LOG_INF("Initialized");
 	}
 
@@ -55,9 +66,30 @@ int main(void)
 
 	while (1)
 	{
-		k_msleep(1000);
-		k_work_submit(&battery_work);
+		for (i = 0; i<3; i++){
+			k_msleep(4000);
+			battery_set_max_charge_current(i);
+			if (i==0){
+				gpio_pin_set(gpio0_dev,GPIO_LED_RED,0);
+				gpio_pin_set(gpio0_dev,GPIO_LED_GREEN,0);
+				gpio_pin_set(gpio0_dev,GPIO_LED_BLUE,1);
+				battery_set_max_charge_current(Current0);
+			}
+			else if (i==1){
+				gpio_pin_set(gpio0_dev,GPIO_LED_RED,0);
+				gpio_pin_set(gpio0_dev,GPIO_LED_GREEN,1);
+				gpio_pin_set(gpio0_dev,GPIO_LED_BLUE,0);
+				battery_set_max_charge_current(Current50);
+			}
+			else if (i==2){
+				gpio_pin_set(gpio0_dev,GPIO_LED_RED,1);
+				gpio_pin_set(gpio0_dev,GPIO_LED_GREEN,0);
+				gpio_pin_set(gpio0_dev,GPIO_LED_BLUE,0);
+				battery_set_max_charge_current(Current100);
+			}
+			k_msleep(1000);
+			k_work_submit(&battery_work);
+		}
 	}
-
 	return 0;
 }
