@@ -19,35 +19,24 @@
 #ifndef __BATTERY_H__
 #define __BATTERY_H__
 
-/**
- * @brief Set battery charging to fast charge (100mA).
- *
- * @retval 0 if successful. Negative errno number on error.
- */
-int battery_set_fast_charge(void);
+typedef enum batt_charging_status{disconnected=-1,notCharging=0,Charging=1} enum_bachast; 
+typedef enum batt_max_charge_current{Current0=0, Current50=50,Current100=100} enum_bachacurr;
 
 /**
- * @brief Set battery charging to slow charge (50mA).
+ * @brief Set battery max charging current {Current0=0, Current50=1,Current100=2}
  *
  * @retval 0 if successful. Negative errno number on error.
  */
-int battery_set_slow_charge(void);
+int battery_set_max_charge_current(enum_bachacurr max_charge_current);
 
 /**
- * @brief Start battery charging.
+ * @brief Calculates the battery voltage using the ADC.
+ *
+ * @param[in] battery_charging_status Pointer to where status has to be stored.
  *
  * @retval 0 if successful. Negative errno number on error.
  */
-int battery_charge_start(void);
-
-/**
- * @brief Stop battery charging.
- *
- * @retval 0 if successful. Negative errno number on error.
- *
- * @note: want to stop charging to save power during runtime (Disables LED).
- */
-int battery_charge_stop(void);
+void battery_get_charging_status(enum_bachast *battery_charging_status);
 
 /**
  * @brief Calculates the battery voltage using the ADC.
