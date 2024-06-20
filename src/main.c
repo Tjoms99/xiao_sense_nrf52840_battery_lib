@@ -40,7 +40,6 @@ int main(void)
 	k_msleep(1000); // Gives time for the terminal to connect to catch LOG's
 
 	ret |= battery_init();
-	ret |= battery_charge_start();
 
 	if (ret)
 	{

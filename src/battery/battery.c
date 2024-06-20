@@ -26,6 +26,7 @@ LOG_MODULE_REGISTER(battery, LOG_LEVEL_INF);
 
 static const struct device *gpio_battery_dev = DEVICE_DT_GET(DT_NODELABEL(gpio0));
 static const struct device *adc_battery_dev = DEVICE_DT_GET(DT_NODELABEL(adc));
+static struct gpio_callback charging_callback;
 
 static K_MUTEX_DEFINE(battery_mut);
 
@@ -99,6 +100,14 @@ static int battery_enable_read()
     return gpio_pin_set(gpio_battery_dev, GPIO_BATTERY_READ_ENABLE, 1);
 }
 
+static void charging_callback_handler(const struct device *dev,
+                                      struct gpio_callback *cb,
+                                      uint32_t pins)
+{
+    bool is_charging = gpio_pin_get(gpio_battery_dev, GPIO_BATTERY_CHARGING_ENABLE);
+    LOG_INF("Charger %s", is_charging ? "connected" : "disconnected");
+}
+
 int battery_set_fast_charge()
 {
     if (!is_initialized)
@@ -117,29 +126,6 @@ int battery_set_slow_charge()
     }
 
     return gpio_pin_set(gpio_battery_dev, GPIO_BATTERY_CHARGE_SPEED, 0); // SLOW charge 50mA
-}
-
-int battery_charge_start()
-{
-    int ret = 0;
-
-    if (!is_initialized)
-    {
-        return -ECANCELED;
-    }
-    ret |= battery_enable_read();
-    ret |= gpio_pin_set(gpio_battery_dev, GPIO_BATTERY_CHARGING_ENABLE, 1);
-    return ret;
-}
-
-int battery_charge_stop()
-{
-    if (!is_initialized)
-    {
-        return -ECANCELED;
-    }
-
-    return gpio_pin_set(gpio_battery_dev, GPIO_BATTERY_CHARGING_ENABLE, 0);
 }
 
 int battery_get_millivolt(uint16_t *battery_millivolt)
@@ -233,7 +219,9 @@ int battery_init()
         return -EIO;
     }
 
-    ret |= gpio_pin_configure(gpio_battery_dev, GPIO_BATTERY_CHARGING_ENABLE, GPIO_OUTPUT | GPIO_ACTIVE_LOW);
+    ret |= gpio_pin_configure(gpio_battery_dev, GPIO_BATTERY_CHARGING_ENABLE, GPIO_INPUT | GPIO_ACTIVE_LOW);
+    ret |= gpio_pin_interrupt_configure(gpio_battery_dev, GPIO_BATTERY_CHARGING_ENABLE, GPIO_INT_EDGE_BOTH);
+
     ret |= gpio_pin_configure(gpio_battery_dev, GPIO_BATTERY_READ_ENABLE, GPIO_OUTPUT | GPIO_ACTIVE_LOW);
     ret |= gpio_pin_configure(gpio_battery_dev, GPIO_BATTERY_CHARGE_SPEED, GPIO_OUTPUT | GPIO_ACTIVE_LOW);
 
@@ -242,6 +230,10 @@ int battery_init()
         LOG_ERR("GPIO configure failed!");
         return ret;
     }
+
+    gpio_init_callback(&charging_callback, charging_callback_handler,
+                       BIT(GPIO_BATTERY_CHARGING_ENABLE));
+    gpio_add_callback(gpio_battery_dev, &charging_callback);
 
     if (ret)
     {

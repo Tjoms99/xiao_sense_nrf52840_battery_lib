@@ -33,21 +33,6 @@ int battery_set_fast_charge(void);
  */
 int battery_set_slow_charge(void);
 
-/**
- * @brief Start battery charging.
- *
- * @retval 0 if successful. Negative errno number on error.
- */
-int battery_charge_start(void);
-
-/**
- * @brief Stop battery charging.
- *
- * @retval 0 if successful. Negative errno number on error.
- *
- * @note: want to stop charging to save power during runtime (Disables LED).
- */
-int battery_charge_stop(void);
 
 /**
  * @brief Calculates the battery voltage using the ADC.
