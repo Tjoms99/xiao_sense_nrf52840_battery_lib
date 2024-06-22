@@ -15,9 +15,16 @@
  */
 
 #include <stdint.h>
+#include <stdbool.h>
 
 #ifndef __BATTERY_H__
 #define __BATTERY_H__
+
+// Callback function type definition
+typedef void (*battery_charging_changed_callback_t)(bool is_charging);
+// typedef void (*battery_reading_ready_callback_t)(uint16_t millivolt);
+
+int battery_register_charging_changed_callback(battery_charging_changed_callback_t callback);
 
 /**
  * @brief Set battery charging to fast charge (100mA).
@@ -32,7 +39,6 @@ int battery_set_fast_charge(void);
  * @retval 0 if successful. Negative errno number on error.
  */
 int battery_set_slow_charge(void);
-
 
 /**
  * @brief Calculates the battery voltage using the ADC.
