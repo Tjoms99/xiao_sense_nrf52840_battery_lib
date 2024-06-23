@@ -15,9 +15,22 @@
  */
 
 #include <stdint.h>
+#include <stdbool.h>
 
 #ifndef __BATTERY_H__
 #define __BATTERY_H__
+
+// Callback function type definition
+typedef void (*battery_charging_changed_callback_t)(bool is_charging);
+
+/**
+ * @brief Register a callback function which is executed every time the charging state is changed.
+ *
+ * @retval 0 if successful. Negative errno number on error.
+ *
+ * @note If the error is -12, try to increase the BATTERY_CALLBACK_MAX define in the libray.
+ */
+int battery_register_charging_changed_callback(battery_charging_changed_callback_t callback);
 
 /**
  * @brief Set battery charging to fast charge (100mA).
@@ -32,22 +45,6 @@ int battery_set_fast_charge(void);
  * @retval 0 if successful. Negative errno number on error.
  */
 int battery_set_slow_charge(void);
-
-/**
- * @brief Start battery charging.
- *
- * @retval 0 if successful. Negative errno number on error.
- */
-int battery_charge_start(void);
-
-/**
- * @brief Stop battery charging.
- *
- * @retval 0 if successful. Negative errno number on error.
- *
- * @note: want to stop charging to save power during runtime (Disables LED).
- */
-int battery_charge_stop(void);
 
 /**
  * @brief Calculates the battery voltage using the ADC.

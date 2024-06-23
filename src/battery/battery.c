@@ -24,27 +24,28 @@
 #include <zephyr/logging/log.h>
 LOG_MODULE_REGISTER(battery, LOG_LEVEL_INF);
 
-static const struct device *gpio_battery_dev = DEVICE_DT_GET(DT_NODELABEL(gpio0));
-static const struct device *adc_battery_dev = DEVICE_DT_GET(DT_NODELABEL(adc));
-
-static K_MUTEX_DEFINE(battery_mut);
-
 #define GPIO_BATTERY_CHARGE_SPEED 13
 #define GPIO_BATTERY_CHARGING_ENABLE 17
 #define GPIO_BATTERY_READ_ENABLE 14
 
+// Feel free to increase this when necessary
+#define BATTERY_CALLBACK_MAX 1
+
 // Change this to a higher number for better averages
 // Note that increasing this holds up the thread / ADC for longer.
 #define ADC_TOTAL_SAMPLES 10
-int16_t sample_buffer[ADC_TOTAL_SAMPLES];
+
+//--------------------------------------------------------------
+// ADC setup
 
 #define ADC_RESOLUTION 12
 #define ADC_CHANNEL 7
 #define ADC_PORT SAADC_CH_PSELP_PSELP_AnalogInput7 // AIN7
 #define ADC_REFERENCE ADC_REF_INTERNAL             // 0.6V
 #define ADC_GAIN ADC_GAIN_1_6                      // ADC REFERENCE * 6 = 3.6V
+#define ADC_SAMPLE_INTERVAL_US 500                 // Time between each sample
 
-struct adc_channel_cfg channel_7_cfg = {
+static struct adc_channel_cfg channel_7_cfg = {
     .gain = ADC_GAIN,
     .reference = ADC_REFERENCE,
     .acquisition_time = ADC_ACQ_TIME_DEFAULT,
@@ -56,16 +57,33 @@ struct adc_channel_cfg channel_7_cfg = {
 
 static struct adc_sequence_options options = {
     .extra_samplings = ADC_TOTAL_SAMPLES - 1,
-    .interval_us = 500, // Interval between each sample
+    .interval_us = ADC_SAMPLE_INTERVAL_US,
 };
 
-struct adc_sequence sequence = {
+static int16_t sample_buffer[ADC_TOTAL_SAMPLES];
+static struct adc_sequence sequence = {
     .options = &options,
     .channels = BIT(ADC_CHANNEL),
     .buffer = sample_buffer,
     .buffer_size = sizeof(sample_buffer),
     .resolution = ADC_RESOLUTION,
 };
+
+//--------------------------------------------------------------
+
+// MCU peripherals for reading battery voltage
+static const struct device *gpio_battery_dev = DEVICE_DT_GET(DT_NODELABEL(gpio0));
+static const struct device *adc_battery_dev = DEVICE_DT_GET(DT_NODELABEL(adc));
+
+// Charging interrupt
+static struct gpio_callback charging_callback;
+static struct k_work charging_interrupt_work;
+
+// Callbacks for change in charging and when a battery sample is ready.
+static battery_charging_changed_callback_t charging_changed_callbacks[BATTERY_CALLBACK_MAX];
+static size_t callback_registered = 0;
+
+static K_MUTEX_DEFINE(battery_mut);
 
 typedef struct
 {
@@ -75,9 +93,8 @@ typedef struct
 
 #define BATTERY_STATES_COUNT 12
 // Assuming LiPo battery.
-// Source: https://forum.evolvapor.com/topic/65565-discharge-profiles-csv-for-2-3-18650-batteries-sony-vtc6-sammy-30q/
-// SHOULD USE YOUR BATTERY'S DATASHEET
-BatteryState battery_states[BATTERY_STATES_COUNT] = {
+// For better accuracy, use your battery's datasheet.
+static BatteryState battery_states[BATTERY_STATES_COUNT] = {
     {4200, 100},
     {4160, 99},
     {4090, 91},
@@ -99,6 +116,40 @@ static int battery_enable_read()
     return gpio_pin_set(gpio_battery_dev, GPIO_BATTERY_READ_ENABLE, 1);
 }
 
+static void run_charging_changed_callbacks(struct k_work *work)
+{
+    bool is_charging = gpio_pin_get(gpio_battery_dev, GPIO_BATTERY_CHARGING_ENABLE);
+    LOG_DBG("Charger %s", is_charging ? "connected" : "disconnected");
+
+    for (uint8_t callback = 0; callback < callback_registered; callback++)
+    {
+        charging_changed_callbacks[callback](is_charging);
+    }
+}
+
+static void charging_callback_handler(const struct device *dev,
+                                      struct gpio_callback *cb,
+                                      uint32_t pins)
+{
+    k_work_submit(&charging_interrupt_work);
+}
+
+//------------------------------------------------------------------------------------------
+// Public functions
+
+int battery_register_charging_changed_callback(battery_charging_changed_callback_t callback)
+{
+    if (callback_registered == BATTERY_CALLBACK_MAX)
+    {
+        LOG_ERR("Maximum number of callbacks reached, operation aborted");
+        return -ENOMEM;
+    }
+
+    charging_changed_callbacks[callback_registered++] = callback;
+
+    return 0;
+}
+
 int battery_set_fast_charge()
 {
     if (!is_initialized)
@@ -117,29 +168,6 @@ int battery_set_slow_charge()
     }
 
     return gpio_pin_set(gpio_battery_dev, GPIO_BATTERY_CHARGE_SPEED, 0); // SLOW charge 50mA
-}
-
-int battery_charge_start()
-{
-    int ret = 0;
-
-    if (!is_initialized)
-    {
-        return -ECANCELED;
-    }
-    ret |= battery_enable_read();
-    ret |= gpio_pin_set(gpio_battery_dev, GPIO_BATTERY_CHARGING_ENABLE, 1);
-    return ret;
-}
-
-int battery_charge_stop()
-{
-    if (!is_initialized)
-    {
-        return -ECANCELED;
-    }
-
-    return gpio_pin_set(gpio_battery_dev, GPIO_BATTERY_CHARGING_ENABLE, 0);
 }
 
 int battery_get_millivolt(uint16_t *battery_millivolt)
@@ -224,6 +252,7 @@ int battery_init()
     if (ret)
     {
         LOG_ERR("ADC setup failed (error %d)", ret);
+        return ret;
     }
 
     // GPIO
@@ -233,7 +262,9 @@ int battery_init()
         return -EIO;
     }
 
-    ret |= gpio_pin_configure(gpio_battery_dev, GPIO_BATTERY_CHARGING_ENABLE, GPIO_OUTPUT | GPIO_ACTIVE_LOW);
+    ret |= gpio_pin_configure(gpio_battery_dev, GPIO_BATTERY_CHARGING_ENABLE, GPIO_INPUT | GPIO_ACTIVE_LOW);
+    ret |= gpio_pin_interrupt_configure(gpio_battery_dev, GPIO_BATTERY_CHARGING_ENABLE, GPIO_INT_EDGE_BOTH);
+
     ret |= gpio_pin_configure(gpio_battery_dev, GPIO_BATTERY_READ_ENABLE, GPIO_OUTPUT | GPIO_ACTIVE_LOW);
     ret |= gpio_pin_configure(gpio_battery_dev, GPIO_BATTERY_CHARGE_SPEED, GPIO_OUTPUT | GPIO_ACTIVE_LOW);
 
@@ -243,17 +274,22 @@ int battery_init()
         return ret;
     }
 
-    if (ret)
-    {
-        LOG_ERR("Initialization failed (error %d)", ret);
-        return ret;
-    }
+    // Charger interrupt setup
+    k_work_init(&charging_interrupt_work, run_charging_changed_callbacks);
+    gpio_init_callback(&charging_callback, charging_callback_handler,
+                       BIT(GPIO_BATTERY_CHARGING_ENABLE));
+    gpio_add_callback(gpio_battery_dev, &charging_callback);
+
+    // Get ready for battery charging and sampling
+    ret |= battery_set_fast_charge();
+    ret |= battery_enable_read();
+
+    // Lets check the current charging status
+    bool is_charging = gpio_pin_get(gpio_battery_dev, GPIO_BATTERY_CHARGING_ENABLE);
+    LOG_INF("Charger %s", is_charging ? "connected" : "disconnected");
 
     is_initialized = true;
     LOG_INF("Initialized");
-
-    ret |= battery_enable_read();
-    ret |= battery_set_fast_charge();
 
     return ret;
 }

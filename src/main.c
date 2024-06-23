@@ -34,13 +34,18 @@ void battery_work_handler(struct k_work *work_item)
 	LOG_INF("Battery at %d mV (capacity %d%%)", battery_millivolt, battery_percentage);
 }
 
+void log_charging_state(bool is_charging)
+{
+	LOG_INF("Charger %s", is_charging ? "connected" : "disconnected");
+}
+
 int main(void)
 {
 	int ret = 0;
 	k_msleep(1000); // Gives time for the terminal to connect to catch LOG's
 
 	ret |= battery_init();
-	ret |= battery_charge_start();
+	ret |= battery_register_charging_changed_callback(log_charging_state);
 
 	if (ret)
 	{
