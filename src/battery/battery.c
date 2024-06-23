@@ -252,6 +252,7 @@ int battery_init()
     if (ret)
     {
         LOG_ERR("ADC setup failed (error %d)", ret);
+        return ret;
     }
 
     // GPIO
