@@ -45,6 +45,7 @@ int main(void)
 	k_msleep(1000); // Gives time for the terminal to connect to catch LOG's
 
 	ret |= battery_init();
+	ret |= battery_register_charging_changed_callback(log_charging_state);
 
 	if (ret)
 	{
@@ -56,8 +57,6 @@ int main(void)
 	}
 
 	k_work_init(&battery_work, battery_work_handler);
-
-	battery_register_charging_changed_callback(log_charging_state);
 
 	while (1)
 	{

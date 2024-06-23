@@ -22,8 +22,14 @@
 
 // Callback function type definition
 typedef void (*battery_charging_changed_callback_t)(bool is_charging);
-// typedef void (*battery_reading_ready_callback_t)(uint16_t millivolt);
 
+/**
+ * @brief Register a callback function which is executed every time the charging state is changed.
+ *
+ * @retval 0 if successful. Negative errno number on error.
+ *
+ * @note If the error is -12, try to increase the BATTERY_CALLBACK_MAX define in the libray.
+ */
 int battery_register_charging_changed_callback(battery_charging_changed_callback_t callback);
 
 /**

@@ -274,25 +274,22 @@ int battery_init()
         return ret;
     }
 
+    // Charger interrupt setup
     k_work_init(&charging_interrupt_work, run_charging_changed_callbacks);
     gpio_init_callback(&charging_callback, charging_callback_handler,
                        BIT(GPIO_BATTERY_CHARGING_ENABLE));
     gpio_add_callback(gpio_battery_dev, &charging_callback);
 
-    if (ret)
-    {
-        LOG_ERR("Initialization failed (error %d)", ret);
-        return ret;
-    }
+    // Get ready for battery charging and sampling
+    ret |= battery_set_fast_charge();
+    ret |= battery_enable_read();
+
+    // Lets check the current charging status
+    bool is_charging = gpio_pin_get(gpio_battery_dev, GPIO_BATTERY_CHARGING_ENABLE);
+    LOG_INF("Charger %s", is_charging ? "connected" : "disconnected");
 
     is_initialized = true;
     LOG_INF("Initialized");
-
-    ret |= battery_enable_read();
-    ret |= battery_set_fast_charge();
-
-    bool is_charging = gpio_pin_get(gpio_battery_dev, GPIO_BATTERY_CHARGING_ENABLE);
-    LOG_INF("Charger %s", is_charging ? "connected" : "disconnected");
 
     return ret;
 }
