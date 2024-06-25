@@ -49,7 +49,7 @@ int main(void)
 
 	if (ret)
 	{
-		LOG_ERR("Failed to initialize");
+		LOG_ERR("Failed to initialize (error %d)", ret);
 	}
 	else
 	{
