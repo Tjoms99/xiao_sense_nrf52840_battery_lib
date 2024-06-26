@@ -21,20 +21,15 @@
 #include <zephyr/logging/log.h>
 LOG_MODULE_REGISTER(main, LOG_LEVEL_INF);
 
-struct k_work battery_work;
-
-void battery_work_handler(struct k_work *work_item)
+void log_battery_millivolt(uint16_t millivolt)
 {
-	uint16_t battery_millivolt = 0;
 	uint8_t battery_percentage = 0;
+	battery_get_percentage(&battery_percentage, millivolt);
 
-	battery_get_millivolt(&battery_millivolt);
-	battery_get_percentage(&battery_percentage, battery_millivolt);
-
-	LOG_INF("Battery at %d mV (capacity %d%%)", battery_millivolt, battery_percentage);
+	LOG_INF("Battery at %d mV (capacity %d%%)", millivolt, battery_percentage);
 }
 
-void log_charging_state(bool is_charging)
+void log_battery_charging_state(bool is_charging)
 {
 	LOG_INF("Charger %s", is_charging ? "connected" : "disconnected");
 }
@@ -45,7 +40,8 @@ int main(void)
 	k_msleep(1000); // Gives time for the terminal to connect to catch LOG's
 
 	ret |= battery_init();
-	ret |= battery_register_charging_changed_callback(log_charging_state);
+	ret |= battery_register_charging_changed_callback(log_battery_charging_state);
+	ret |= battery_register_sample_ready_callback(log_battery_millivolt);
 
 	if (ret)
 	{
@@ -56,12 +52,15 @@ int main(void)
 		LOG_INF("Initialized");
 	}
 
-	k_work_init(&battery_work, battery_work_handler);
+	// This is getting one sample only
+	battery_start_one_shot_sample();
 
 	while (1)
 	{
-		k_msleep(1000);
-		k_work_submit(&battery_work);
+		battery_start_periodic_sampling(1000);
+		k_sleep(K_SECONDS(10));
+		battery_stop_periodic_sampling();
+		k_sleep(K_SECONDS(5));
 	}
 
 	return 0;

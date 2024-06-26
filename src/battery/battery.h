@@ -22,6 +22,7 @@
 
 // Callback function type definition
 typedef void (*battery_charging_changed_callback_t)(bool is_charging);
+typedef void (*battery_sample_ready_callback_t)(uint16_t millivolt);
 
 /**
  * @brief Register a callback function which is executed every time the charging state is changed.
@@ -31,6 +32,15 @@ typedef void (*battery_charging_changed_callback_t)(bool is_charging);
  * @note If the error is -12, try to increase the BATTERY_CALLBACK_MAX define in the libray.
  */
 int battery_register_charging_changed_callback(battery_charging_changed_callback_t callback);
+
+/**
+ * @brief Register a callback function which is executed every time a voltage sample is ready.
+ *
+ * @retval 0 if successful. Negative errno number on error.
+ *
+ * @note If the error is -12, try to increase the BATTERY_CALLBACK_MAX define in the libray.
+ */
+int battery_register_sample_ready_callback(battery_sample_ready_callback_t callback);
 
 /**
  * @brief Set battery charging to fast charge (100mA).
@@ -65,6 +75,33 @@ int battery_get_millivolt(uint16_t *battery_millivolt);
  * @retval 0 if successful. Negative errno number on error.
  */
 int battery_get_percentage(uint8_t *battery_percentage, uint16_t battery_millivolt);
+
+/**
+ * @brief Start periodic sampling of the battery voltage.
+ *
+ * @param[in] interval_ms Sampling interval in milliseconds.
+ *
+ * @retval 0 if successful. Negative errno number on error.
+ *
+ * @note The callbacks registered in "battery_register_sample_ready_callback" are run when the voltage reading is done.
+ */
+int battery_start_periodic_sampling(uint32_t interval_ms);
+
+/**
+ * @brief Stop periodic sampling of the battery voltage.
+ *
+ * @retval 0 if successful. Negative errno number on error.
+ */
+int battery_stop_periodic_sampling(void);
+
+/**
+ * @brief Sample one voltage reading.
+ *
+ * @retval 0 if successful. Negative errno number on error.
+ *
+ * @note The callbacks registered in "battery_register_sample_ready_callback" are run when the voltage reading is done.
+ */
+int battery_start_one_shot_sample(void);
 
 /**
  * @brief Initialize the battery charging circuit.
