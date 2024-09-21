@@ -40,8 +40,8 @@ int main(void)
 	k_msleep(1000); // Gives time for the terminal to connect to catch LOG's
 
 	ret |= battery_init();
-	ret |= battery_register_charging_changed_callback(log_battery_charging_state);
-	ret |= battery_register_sample_ready_callback(log_battery_millivolt);
+	ret |= battery_register_charging_callback(log_battery_charging_state);
+	ret |= battery_register_sample_callback(log_battery_millivolt);
 
 	if (ret)
 	{
@@ -53,13 +53,13 @@ int main(void)
 	}
 
 	// This is getting one sample only
-	battery_start_one_shot_sample();
+	battery_sample_once();
 
 	while (1)
 	{
-		battery_start_periodic_sampling(1000);
+		battery_start_sampling(1000);
 		k_sleep(K_SECONDS(10));
-		battery_stop_periodic_sampling();
+		battery_stop_sampling();
 		k_sleep(K_SECONDS(5));
 	}
 

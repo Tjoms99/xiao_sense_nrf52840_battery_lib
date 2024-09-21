@@ -14,33 +14,33 @@
  * limitations under the License.
  */
 
-#include <stdint.h>
-#include <stdbool.h>
-
 #ifndef __BATTERY_H__
 #define __BATTERY_H__
 
-// Callback function type definition
-typedef void (*battery_charging_changed_callback_t)(bool is_charging);
-typedef void (*battery_sample_ready_callback_t)(uint16_t millivolt);
+#include <stdint.h>
+#include <stdbool.h>
+
+// Callback function type definitions
+typedef void (*battery_charging_callback_t)(bool is_charging);
+typedef void (*battery_sample_callback_t)(uint16_t millivolt);
 
 /**
- * @brief Register a callback function which is executed every time the charging state is changed.
+ * @brief Register a callback function that is executed every time the charging state changes.
  *
  * @retval 0 if successful. Negative errno number on error.
  *
- * @note If the error is -12, try to increase the BATTERY_CALLBACK_MAX define in the libray.
+ * @note If the error is -12, try increasing the BATTERY_CALLBACK_MAX define in the library.
  */
-int battery_register_charging_changed_callback(battery_charging_changed_callback_t callback);
+int battery_register_charging_callback(battery_charging_callback_t callback);
 
 /**
- * @brief Register a callback function which is executed every time a voltage sample is ready.
+ * @brief Register a callback function that is executed every time a voltage sample is ready.
  *
  * @retval 0 if successful. Negative errno number on error.
  *
- * @note If the error is -12, try to increase the BATTERY_CALLBACK_MAX define in the libray.
+ * @note If the error is -12, try increasing the BATTERY_CALLBACK_MAX define in the library.
  */
-int battery_register_sample_ready_callback(battery_sample_ready_callback_t callback);
+int battery_register_sample_callback(battery_sample_callback_t callback);
 
 /**
  * @brief Set battery charging to fast charge (100mA).
@@ -57,20 +57,19 @@ int battery_set_fast_charge(void);
 int battery_set_slow_charge(void);
 
 /**
- * @brief Calculates the battery voltage using the ADC.
+ * @brief Get the current battery voltage in millivolts.
  *
- * @param[in] battery_millivolt Pointer to where battery voltage is stored.
+ * @param[out] battery_millivolt Pointer where the battery voltage will be stored.
  *
  * @retval 0 if successful. Negative errno number on error.
  */
 int battery_get_millivolt(uint16_t *battery_millivolt);
 
 /**
- * @brief Calculates the battery percentage using the battery voltage.
+ * @brief Calculate the battery percentage based on the voltage.
  *
- * @param[in] battery_percentage  Pointer to where battery percentage is stored.
- *
- * @param[in] battery_millivolt Voltage used to calculate the percentage of how much energy is left in a 3.7V LiPo battery.
+ * @param[out] battery_percentage Pointer where the battery percentage will be stored.
+ * @param[in] battery_millivolt Voltage reading to calculate the percentage from.
  *
  * @retval 0 if successful. Negative errno number on error.
  */
@@ -83,28 +82,28 @@ int battery_get_percentage(uint8_t *battery_percentage, uint16_t battery_millivo
  *
  * @retval 0 if successful. Negative errno number on error.
  *
- * @note The callbacks registered in "battery_register_sample_ready_callback" are run when the voltage reading is done.
+ * @note Registered sample callbacks are called when a new sample is ready.
  */
-int battery_start_periodic_sampling(uint32_t interval_ms);
+int battery_start_sampling(uint32_t interval_ms);
 
 /**
  * @brief Stop periodic sampling of the battery voltage.
  *
  * @retval 0 if successful. Negative errno number on error.
  */
-int battery_stop_periodic_sampling(void);
+int battery_stop_sampling(void);
 
 /**
- * @brief Sample one voltage reading.
+ * @brief Take a one-time battery voltage sample.
  *
  * @retval 0 if successful. Negative errno number on error.
  *
- * @note The callbacks registered in "battery_register_sample_ready_callback" are run when the voltage reading is done.
+ * @note Registered sample callbacks are called when the sample is ready.
  */
-int battery_start_one_shot_sample(void);
+int battery_sample_once(void);
 
 /**
- * @brief Initialize the battery charging circuit.
+ * @brief Initialize the battery management system.
  *
  * @retval 0 if successful. Negative errno number on error.
  */
