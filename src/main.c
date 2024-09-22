@@ -24,15 +24,15 @@ LOG_MODULE_REGISTER(main, LOG_LEVEL_INF);
 void log_battery_voltage(uint16_t millivolt)
 {
 	uint8_t battery_percentage = 0;
+
 	int ret = battery_get_percentage(&battery_percentage, millivolt);
-	if (ret == 0)
-	{
-		LOG_INF("Battery at %d mV (capacity %d%%)", millivolt, battery_percentage);
-	}
-	else
+	if (ret)
 	{
 		LOG_ERR("Failed to calculate battery percentage");
+		return;
 	}
+
+	LOG_INF("Battery at %d mV (capacity %d%%)", millivolt, battery_percentage);
 }
 
 void log_charging_state(bool is_charging)
