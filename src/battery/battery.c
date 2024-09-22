@@ -104,22 +104,21 @@ typedef struct
     uint8_t percentage;
 } BatteryState;
 
-#define BATTERY_STATES_COUNT 12
-// Assuming LiPo battery.
-// For better accuracy, use your battery's datasheet.
+#define BATTERY_STATES_COUNT 11
+// Voltage levels in millivolts and corresponding percentages for a typical LiPo battery.
+// Adjust these values based on your battery's datasheet for better accuracy.
 static BatteryState battery_states[BATTERY_STATES_COUNT] = {
-    {4200, 100},
-    {4160, 99},
-    {4090, 91},
-    {4030, 78},
-    {3890, 63},
-    {3830, 53},
-    {3680, 36},
-    {3660, 35},
-    {3480, 14},
-    {3420, 11},
-    {3150, 1}, // 3240
-    {0000, 0}  // Below safe level
+    {4200, 100}, // Fully charged
+    {4110, 90},
+    {4020, 80},
+    {3930, 70},
+    {3840, 60},
+    {3750, 50},
+    {3660, 40},
+    {3570, 30},
+    {3480, 20},
+    {3390, 10},
+    {3300, 0} // Minimum safe voltage
 };
 
 //------------------------------------------------------------------------------------------
