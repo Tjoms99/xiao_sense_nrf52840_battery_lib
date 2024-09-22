@@ -68,13 +68,14 @@ int main(void)
 
 	// Take a one-time sample
 	battery_sample_once();
+	k_sleep(K_SECONDS(3));
 
 	// Start periodic sampling every 1000 ms
 	battery_start_sampling(1000);
 
 	while (1)
 	{
-		k_sleep(K_SECONDS(10));
+		k_sleep(K_SECONDS(60));
 		// You can stop periodic sampling if needed
 		// battery_stop_sampling();
 	}
