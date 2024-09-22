@@ -21,17 +21,18 @@
 #include <zephyr/logging/log.h>
 LOG_MODULE_REGISTER(main, LOG_LEVEL_INF);
 
-struct k_work battery_work;
-
-void battery_work_handler(struct k_work *work_item)
+void log_battery_voltage(uint16_t millivolt)
 {
-	uint16_t battery_millivolt = 0;
 	uint8_t battery_percentage = 0;
 
-	battery_get_millivolt(&battery_millivolt);
-	battery_get_percentage(&battery_percentage, battery_millivolt);
+	int ret = battery_get_percentage(&battery_percentage, millivolt);
+	if (ret)
+	{
+		LOG_ERR("Failed to calculate battery percentage");
+		return;
+	}
 
-	LOG_INF("Battery at %d mV (capacity %d%%)", battery_millivolt, battery_percentage);
+	LOG_INF("Battery at %d mV (capacity %d%%)", millivolt, battery_percentage);
 }
 
 void log_charging_state(bool is_charging)
@@ -42,26 +43,41 @@ void log_charging_state(bool is_charging)
 int main(void)
 {
 	int ret = 0;
-	k_msleep(1000); // Gives time for the terminal to connect to catch LOG's
+	k_msleep(1000); // Gives time for the terminal to connect to catch logs
 
-	ret |= battery_init();
-	ret |= battery_register_charging_changed_callback(log_charging_state);
-
+	ret = battery_init();
 	if (ret)
 	{
-		LOG_ERR("Failed to initialize (error %d)", ret);
-	}
-	else
-	{
-		LOG_INF("Initialized");
+		LOG_ERR("Failed to initialize battery management (error %d)", ret);
+		return ret;
 	}
 
-	k_work_init(&battery_work, battery_work_handler);
+	ret = battery_register_charging_callback(log_charging_state);
+	if (ret)
+	{
+		LOG_ERR("Failed to register charging callback (error %d)", ret);
+		return ret;
+	}
+
+	ret = battery_register_sample_callback(log_battery_voltage);
+	if (ret)
+	{
+		LOG_ERR("Failed to register sample callback (error %d)", ret);
+		return ret;
+	}
+
+	// Take a one-time sample
+	battery_sample_once();
+	k_sleep(K_SECONDS(3));
+
+	// Start periodic sampling every 1000 ms
+	battery_start_sampling(1000);
 
 	while (1)
 	{
-		k_msleep(1000);
-		k_work_submit(&battery_work);
+		k_sleep(K_SECONDS(60));
+		// You can stop periodic sampling if needed
+		// battery_stop_sampling();
 	}
 
 	return 0;

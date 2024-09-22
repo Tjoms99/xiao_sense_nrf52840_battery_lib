@@ -11,65 +11,86 @@
 This library is designed to manage the battery charging functionality of the XIAO BLE and XIAO BLE Sense board. It supports the following features for a 3.7V LiPo battery:
 
 - Reading battery voltage.
+- Calculating battery capacity as a percentage.
 - Setting charging modes (fast or slow).
-- Calculating battery capacity in percentage.
 - Registering callbacks for charging state changes.
+- Registering callbacks for battery voltage samples.
+- One-shot and periodic battery voltage sampling.
 
-The library is built on the Zephyr Real-Time Operating System (RTOS). For comprehensive details on Zephyr and how to get started, visit the Zephyr Getting Started Guide.
+The library is built on the Zephyr Real-Time Operating System (RTOS). For comprehensive details on Zephyr and how to get started, visit the [Zephyr Getting Started Guide](https://docs.zephyrproject.org/latest/develop/getting_started/index.html). The Nordic Semiconductor [nRF Connect SDK](https://www.nordicsemi.com/Products/Development-software/nRF-Connect-SDK/GetStarted) tool with VSCode is a good alternative as it includes Zephyr (and much more).
 
 ## Features
 
 ### Battery Voltage Reading
 
-- **Function:** `battery_get_millivolt(uint16_t *battery_millivolt)`
+- **Function:** `int battery_get_millivolt(uint16_t *battery_millivolt)`
 - **Description:** Calculates the battery voltage using the ADC and stores the value in the provided pointer.
 - **Usage:**
 
 ```
 uint16_t voltage;
+
 int ret = battery_get_millivolt(&voltage);
 if (ret == 0) {
     // Use the voltage value here
+} else {
+    // Handle error
 }
-```
-
-### Charging Modes
-
-- **Set Fast Charge (Default)**
-  - **Function:** `battery_set_fast_charge(void)`
-  - **Description:** Sets the battery charging current to fast charge mode (100mA).
-  - **Usage:**
-
-```
-battery_set_fast_charge();
-```
-
-- **Set Slow Charge**
-  - **Function:** `battery_set_slow_charge(void)`
-  - **Description:** Sets the battery charging current to slow charge mode (50mA).
-  - **Usage:**
-
-```
-battery_set_fast_charge();
 ```
 
 ### Battery Percentage Calculation
 
-- **Function:** `battery_get_percentage(uint8_t *battery_percentage, uint16_t battery_millivolt)`
+- **Function:** `int battery_get_percentage(uint8_t *battery_percentage, uint16_t battery_millivolt)`
 - **Description:** Calculates the battery percentage based on the voltage and stores it in the provided pointer.
 - **Usage:**
 
 ```
 uint8_t percentage;
 uint16_t voltage;
+
 battery_get_millivolt(&voltage);
-battery_get_percentage(&percentage, voltage);
+
+int ret = battery_get_percentage(&percentage, voltage);
+if (ret == 0) {
+    // Use the percentage value here
+} else {
+    // Handle error
+}
 ```
+
+### Charging Modes
+
+- **Set Fast Charge (Default)**
+
+  - **Function:** `int battery_set_fast_charge(void)`
+  - **Description:** Sets the battery charging current to fast charge mode (100mA).
+  - **Usage:**
+
+  ```
+  int ret = battery_set_fast_charge();
+  if (ret != 0) {
+     // Handle error
+  }
+  ```
+
+- **Set Slow Charge**
+
+  - **Function:** `int battery_set_slow_charge(void)`
+  - **Description:** Sets the battery charging current to slow charge mode (50mA).
+  - **Usage:**
+
+  ```
+  int ret = battery_set_slow_charge();
+  if (ret != 0) {
+      // Handle error
+  }
+  ```
 
 ### Charging State Change Callback
 
-- **Function:** `battery_register_charging_changed_callback(battery_charging_changed_callback_t callback)`
+- **Function:** `int battery_register_charging_changed_callback(battery_charging_changed_callback_t callback)`
 - **Description:** Registers a callback function that is executed whenever the charging state changes.
+- **Callback Type Definition:** `typedef void (*battery_charging_callback_t)(bool is_charging);`
 - **Usage:**
 
 ```
@@ -81,8 +102,73 @@ void charging_state_changed(bool is_charging) {
     }
 }
 
-battery_register_charging_changed_callback(charging_state_changed);
+int ret = battery_register_charging_callback(charging_state_changed);
+if (ret != 0) {
+    // Handle error
+}
 ```
+
+### Battery Sample Ready Callback
+
+- **Function:** `int battery_register_sample_callback(battery_sample_callback_t callback);`
+- **Description:** Registers a callback function that is executed whenever a battery voltage sample is ready.
+- **Callback Type Definition:** `typedef void (*battery_sample_callback_t)(uint16_t millivolt);
+`
+- **Usage:**
+
+```
+void battery_sample_ready(uint16_t millivolt) {
+    // Process the millivolt value
+}
+
+int ret = battery_register_sample_callback(battery_sample_ready);
+if (ret != 0) {
+    // Handle error
+}
+```
+
+### One-Shot Battery Sampling
+
+- **Function:** `int battery_sample_once(void)`
+- **Description:** Initiates a one-time battery voltage sampling. Registered sample callbacks will be called when the sample is ready.
+- **Usage:**
+
+```
+int ret = battery_sample_once();
+if (ret != 0) {
+    // Handle error
+}
+```
+
+### Periodic Battery Sampling
+
+- **Start Periodic Sampling:**
+
+  - **Function:** `int battery_start_sampling(uint32_t interval_ms);`
+  - **Description:** Starts periodic sampling of the battery voltage at the specified interval in milliseconds. Registered sample callbacks will be called each time a sample is ready.
+  - **Usage:**
+
+  ```
+  uint32_t interval_ms = 1000; // Sample every 1 second
+
+  int ret = battery_start_sampling(interval_ms);
+  if (ret != 0) {
+   // Handle error
+  }
+  ```
+
+- **Stop Periodic Sampling:**
+
+  - **Function:** `int battery_stop_sampling(void);`
+  - **Description:** Stops periodic sampling of the battery voltage.
+  - **Usage:**
+
+  ```
+  int ret = battery_stop_sampling();
+  if (ret != 0) {
+      // Handle error
+  }
+  ```
 
 ### Initialization
 
@@ -91,12 +177,15 @@ battery_register_charging_changed_callback(charging_state_changed);
 - **Usage:**
 
 ```
-battery_init();
+int ret = battery_init();
+if (ret != 0) {
+    // Handle error
+}
 ```
 
 ### Example Usage
 
-There is an example in the `main.c` file that demonstrates how to use the battery management library. This example initializes the battery management library, registers a callback to log charging state changes, and periodically reads and logs the battery voltage and capacity.
+There is an example in the `main.c` file that demonstrates how to use the battery management library. This example initializes the battery management library, registers callbacks for charging state changes and battery voltage samples, and starts periodic sampling of the battery voltage.
 
 ## Programming
 

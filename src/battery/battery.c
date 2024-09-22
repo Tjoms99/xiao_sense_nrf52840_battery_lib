@@ -29,7 +29,7 @@ LOG_MODULE_REGISTER(battery, LOG_LEVEL_INF);
 #define GPIO_BATTERY_READ_ENABLE 14
 
 // Feel free to increase this when necessary
-#define BATTERY_CALLBACK_MAX 1
+#define BATTERY_CALLBACK_MAX 3
 
 // Change this to a higher number for better averages
 // Note that increasing this holds up the thread / ADC for longer.
@@ -70,18 +70,31 @@ static struct adc_sequence sequence = {
 };
 
 //--------------------------------------------------------------
+// Local variables
 
 // MCU peripherals for reading battery voltage
 static const struct device *gpio_battery_dev = DEVICE_DT_GET(DT_NODELABEL(gpio0));
 static const struct device *adc_battery_dev = DEVICE_DT_GET(DT_NODELABEL(adc));
 
+// Battery work and work queue
+static struct k_work_q battery_workq;
+static struct k_work_delayable sample_periodic_work;
+static struct k_work sample_once_work;
+
 // Charging interrupt
 static struct gpio_callback charging_callback;
 static struct k_work charging_interrupt_work;
 
-// Callbacks for change in charging and when a battery sample is ready.
-static battery_charging_changed_callback_t charging_changed_callbacks[BATTERY_CALLBACK_MAX];
-static size_t callback_registered = 0;
+// Callbacks for change in charging
+static battery_charging_callback_t charging_callbacks[BATTERY_CALLBACK_MAX];
+static size_t charging_callbacks_registered = 0;
+
+// Callbacks for when a battery sample is ready
+static battery_sample_callback_t sample_ready_callback[BATTERY_CALLBACK_MAX];
+static size_t sample_ready_callbacks_registered = 0;
+
+static uint32_t sampling_interval_ms;
+static uint8_t is_initialized = false;
 
 static K_MUTEX_DEFINE(battery_mut);
 
@@ -91,39 +104,48 @@ typedef struct
     uint8_t percentage;
 } BatteryState;
 
-#define BATTERY_STATES_COUNT 12
-// Assuming LiPo battery.
-// For better accuracy, use your battery's datasheet.
+#define BATTERY_STATES_COUNT 11
+// Voltage levels in millivolts and corresponding percentages for a typical LiPo battery.
+// Adjust these values based on your battery's datasheet for better accuracy.
 static BatteryState battery_states[BATTERY_STATES_COUNT] = {
-    {4200, 100},
-    {4160, 99},
-    {4090, 91},
-    {4030, 78},
-    {3890, 63},
-    {3830, 53},
-    {3680, 36},
-    {3660, 35},
-    {3480, 14},
-    {3420, 11},
-    {3150, 1}, // 3240
-    {0000, 0}  // Below safe level
+    {4200, 100}, // Fully charged
+    {4110, 90},
+    {4020, 80},
+    {3930, 70},
+    {3840, 60},
+    {3750, 50},
+    {3660, 40},
+    {3570, 30},
+    {3480, 20},
+    {3390, 10},
+    {3300, 0} // Minimum safe voltage
 };
 
-static uint8_t is_initialized = false;
+//------------------------------------------------------------------------------------------
+// Private functions
 
 static int battery_enable_read()
 {
     return gpio_pin_set(gpio_battery_dev, GPIO_BATTERY_READ_ENABLE, 1);
 }
 
-static void run_charging_changed_callbacks(struct k_work *work)
+static void run_charging_callbacks(struct k_work *work)
 {
     bool is_charging = gpio_pin_get(gpio_battery_dev, GPIO_BATTERY_CHARGING_ENABLE);
     LOG_DBG("Charger %s", is_charging ? "connected" : "disconnected");
 
-    for (uint8_t callback = 0; callback < callback_registered; callback++)
+    for (uint8_t callback = 0; callback < charging_callbacks_registered; callback++)
     {
-        charging_changed_callbacks[callback](is_charging);
+        charging_callbacks[callback](is_charging);
+    }
+}
+
+static void run_sample_ready_callbacks(uint32_t millivolt)
+{
+
+    for (uint8_t callback = 0; callback < sample_ready_callbacks_registered; callback++)
+    {
+        sample_ready_callback[callback](millivolt);
     }
 }
 
@@ -131,22 +153,65 @@ static void charging_callback_handler(const struct device *dev,
                                       struct gpio_callback *cb,
                                       uint32_t pins)
 {
-    k_work_submit(&charging_interrupt_work);
+    k_work_submit_to_queue(&battery_workq, &charging_interrupt_work);
+}
+
+static void sample_periodic_handler(struct k_work *work)
+{
+    uint16_t millivolt;
+    int ret = battery_get_millivolt(&millivolt);
+    if (ret)
+    {
+        LOG_ERR("Failed to get battery voltage");
+        goto reschedule;
+    }
+
+    // Run all the callbacks waiting for a voltage reading.
+    run_sample_ready_callbacks(millivolt);
+
+reschedule:
+    k_work_reschedule(&sample_periodic_work, K_MSEC(sampling_interval_ms));
+}
+
+static void sample_once_handler(struct k_work *work)
+{
+    uint16_t millivolt;
+    int ret = battery_get_millivolt(&millivolt);
+    if (ret)
+    {
+        LOG_ERR("Failed to get battery voltage");
+        return;
+    }
+
+    // Run all the callbacks waiting for voltage readings.
+    run_sample_ready_callbacks(millivolt);
 }
 
 //------------------------------------------------------------------------------------------
 // Public functions
 
-int battery_register_charging_changed_callback(battery_charging_changed_callback_t callback)
+int battery_register_charging_callback(battery_charging_callback_t callback)
 {
-    if (callback_registered == BATTERY_CALLBACK_MAX)
+    if (charging_callbacks_registered == BATTERY_CALLBACK_MAX)
     {
         LOG_ERR("Maximum number of callbacks reached, operation aborted");
         return -ENOMEM;
     }
 
-    charging_changed_callbacks[callback_registered++] = callback;
+    charging_callbacks[charging_callbacks_registered++] = callback;
 
+    return 0;
+}
+
+int battery_register_sample_callback(battery_sample_callback_t callback)
+{
+    if (sample_ready_callbacks_registered == BATTERY_CALLBACK_MAX)
+    {
+        LOG_ERR("Maximum number of callbacks reached, operation aborted");
+        return -ENOMEM;
+    }
+
+    sample_ready_callback[sample_ready_callbacks_registered++] = callback;
     return 0;
 }
 
@@ -181,9 +246,14 @@ int battery_get_millivolt(uint16_t *battery_millivolt)
 
     // ADC measure
     uint16_t adc_vref = adc_ref_internal(adc_battery_dev);
-    int adc_mv = 0;
 
-    k_mutex_lock(&battery_mut, K_FOREVER);
+    ret = k_mutex_lock(&battery_mut, K_SECONDS(10));
+    if (ret < 0)
+    {
+        LOG_ERR("Cannot get battery voltage as mutex is locked");
+        return ret;
+    }
+
     ret |= adc_read(adc_battery_dev, &sequence);
 
     if (ret)
@@ -191,18 +261,22 @@ int battery_get_millivolt(uint16_t *battery_millivolt)
         LOG_WRN("ADC read failed (error %d)", ret);
     }
 
+    uint32_t adc_sum = 0;
     // Get average sample value.
     for (uint8_t sample = 0; sample < ADC_TOTAL_SAMPLES; sample++)
     {
-        adc_mv += sample_buffer[sample]; // ADC value, not millivolt yet.
+        adc_sum += sample_buffer[sample]; // ADC value, not millivolt yet.
     }
-    adc_mv /= ADC_TOTAL_SAMPLES;
+    uint32_t adc_average = adc_sum / ADC_TOTAL_SAMPLES;
 
     // Convert ADC value to millivolts
+    uint32_t adc_mv = adc_average;
     ret |= adc_raw_to_millivolts(adc_vref, ADC_GAIN, ADC_RESOLUTION, &adc_mv);
 
     // Calculate battery voltage.
-    *battery_millivolt = adc_mv * ((R1 + R2) / R2);
+    float scale_factor = ((float)(R1 + R2)) / R2;
+    *battery_millivolt = (uint16_t)(adc_mv * scale_factor);
+
     k_mutex_unlock(&battery_mut);
 
     LOG_DBG("%d mV", *battery_millivolt);
@@ -211,36 +285,84 @@ int battery_get_millivolt(uint16_t *battery_millivolt)
 
 int battery_get_percentage(uint8_t *battery_percentage, uint16_t battery_millivolt)
 {
-
     // Ensure voltage is within bounds
-    if (battery_millivolt > battery_states[0].voltage)
+    if (battery_millivolt >= battery_states[0].voltage)
+    {
         *battery_percentage = 100;
-    if (battery_millivolt < battery_states[BATTERY_STATES_COUNT - 1].voltage)
+        return 0;
+    }
+    else if (battery_millivolt <= battery_states[BATTERY_STATES_COUNT - 1].voltage)
+    {
         *battery_percentage = 0;
+        return 0;
+    }
 
     for (uint16_t i = 0; i < BATTERY_STATES_COUNT - 1; i++)
     {
-        // Find the two points battery_millivolt is between
-        if (battery_states[i].voltage >= battery_millivolt && battery_millivolt >= battery_states[i + 1].voltage)
+        uint16_t voltage_high = battery_states[i].voltage;
+        uint16_t voltage_low = battery_states[i + 1].voltage;
+
+        // Find the two points between which battery_millivolt lies
+        if (battery_millivolt <= voltage_high && battery_millivolt >= voltage_low)
         {
-            // Linear interpolation
-            *battery_percentage = battery_states[i].percentage +
-                                  ((float)(battery_millivolt - battery_states[i].voltage) *
-                                   ((float)(battery_states[i + 1].percentage - battery_states[i].percentage) /
-                                    (float)(battery_states[i + 1].voltage - battery_states[i].voltage)));
+            uint8_t percentage_high = battery_states[i].percentage;
+            uint8_t percentage_low = battery_states[i + 1].percentage;
+
+            int32_t voltage_range = voltage_high - voltage_low;          // Should be positive
+            int32_t percentage_range = percentage_high - percentage_low; // Should be positive
+            int32_t voltage_diff = battery_millivolt - voltage_low;      // Non-negative
+
+            if (voltage_range == 0)
+            {
+                *battery_percentage = percentage_high;
+            }
+            else
+            {
+                *battery_percentage = percentage_low + (voltage_diff * percentage_range) / voltage_range;
+            }
 
             LOG_DBG("%d %%", *battery_percentage);
             return 0;
         }
     }
+
+    // If voltage is not within any defined range
     return -ESPIPE;
+}
+
+int battery_start_sampling(uint32_t interval_ms)
+{
+    if (interval_ms == 0)
+    {
+        LOG_ERR("Sampling interval must be greater than zero");
+        return -EINVAL;
+    }
+
+    sampling_interval_ms = interval_ms;
+    k_work_schedule(&sample_periodic_work, K_MSEC(interval_ms));
+
+    LOG_INF("Start sampling battery voltage at %d ms", interval_ms);
+    return 0;
+}
+
+int battery_stop_sampling(void)
+{
+    k_work_cancel_delayable(&sample_periodic_work);
+    LOG_INF("Stopped periodic sampling of battery voltage");
+    return 0;
+}
+
+int battery_sample_once(void)
+{
+    k_work_submit(&sample_once_work);
+    return 0;
 }
 
 int battery_init()
 {
     int ret = 0;
 
-    // ADC
+    // ADC setup
     if (!device_is_ready(adc_battery_dev))
     {
         LOG_ERR("ADC device not found!");
@@ -248,14 +370,13 @@ int battery_init()
     }
 
     ret |= adc_channel_setup(adc_battery_dev, &channel_7_cfg);
-
     if (ret)
     {
         LOG_ERR("ADC setup failed (error %d)", ret);
         return ret;
     }
 
-    // GPIO
+    // GPIO setup
     if (!device_is_ready(gpio_battery_dev))
     {
         LOG_ERR("GPIO device not found!");
@@ -263,19 +384,38 @@ int battery_init()
     }
 
     ret |= gpio_pin_configure(gpio_battery_dev, GPIO_BATTERY_CHARGING_ENABLE, GPIO_INPUT | GPIO_ACTIVE_LOW);
-    ret |= gpio_pin_interrupt_configure(gpio_battery_dev, GPIO_BATTERY_CHARGING_ENABLE, GPIO_INT_EDGE_BOTH);
-
-    ret |= gpio_pin_configure(gpio_battery_dev, GPIO_BATTERY_READ_ENABLE, GPIO_OUTPUT | GPIO_ACTIVE_LOW);
-    ret |= gpio_pin_configure(gpio_battery_dev, GPIO_BATTERY_CHARGE_SPEED, GPIO_OUTPUT | GPIO_ACTIVE_LOW);
-
     if (ret)
     {
-        LOG_ERR("GPIO configure failed!");
+        LOG_ERR("Failed to configure GPIO_BATTERY_CHARGING_ENABLE pin (error %d)", ret);
         return ret;
     }
 
+    ret |= gpio_pin_interrupt_configure(gpio_battery_dev, GPIO_BATTERY_CHARGING_ENABLE, GPIO_INT_EDGE_BOTH);
+    if (ret)
+    {
+        LOG_ERR("Failed to configure GPIO_BATTERY_CHARGING_ENABLE pin interrupt (error %d)", ret);
+        return ret;
+    }
+
+    ret |= gpio_pin_configure(gpio_battery_dev, GPIO_BATTERY_READ_ENABLE, GPIO_OUTPUT | GPIO_ACTIVE_LOW);
+    if (ret)
+    {
+        LOG_ERR("Failed to configure GPIO_BATTERY_READ_ENABLE pin (error %d)", ret);
+        return ret;
+    }
+    ret |= gpio_pin_configure(gpio_battery_dev, GPIO_BATTERY_CHARGE_SPEED, GPIO_OUTPUT | GPIO_ACTIVE_LOW);
+    if (ret)
+    {
+        LOG_ERR("Failed to configure GPIO_BATTERY_CHARGE_SPEED pin (error %d)", ret);
+        return ret;
+    }
+
+    // Battery workers
+    k_work_init_delayable(&sample_periodic_work, sample_periodic_handler);
+    k_work_init(&sample_once_work, sample_once_handler);
+
     // Charger interrupt setup
-    k_work_init(&charging_interrupt_work, run_charging_changed_callbacks);
+    k_work_init(&charging_interrupt_work, run_charging_callbacks);
     gpio_init_callback(&charging_callback, charging_callback_handler,
                        BIT(GPIO_BATTERY_CHARGING_ENABLE));
     gpio_add_callback(gpio_battery_dev, &charging_callback);
@@ -289,7 +429,18 @@ int battery_init()
 
     // Get ready for battery charging and sampling
     ret |= battery_set_fast_charge();
-    ret |= battery_enable_read();
+    if (ret)
+    {
+        LOG_ERR("Failed to set fast charging (error %d)", ret);
+        return ret;
+    }
 
-    return ret;
+    ret |= battery_enable_read();
+    if (ret)
+    {
+        LOG_ERR("Failed to enable battery reading (error %d)", ret);
+        return ret;
+    }
+
+    return 0;
 }
