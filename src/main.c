@@ -21,15 +21,21 @@
 #include <zephyr/logging/log.h>
 LOG_MODULE_REGISTER(main, LOG_LEVEL_INF);
 
-void log_battery_millivolt(uint16_t millivolt)
+void log_battery_voltage(uint16_t millivolt)
 {
 	uint8_t battery_percentage = 0;
-	battery_get_percentage(&battery_percentage, millivolt);
-
-	LOG_INF("Battery at %d mV (capacity %d%%)", millivolt, battery_percentage);
+	int ret = battery_get_percentage(&battery_percentage, millivolt);
+	if (ret == 0)
+	{
+		LOG_INF("Battery at %d mV (capacity %d%%)", millivolt, battery_percentage);
+	}
+	else
+	{
+		LOG_ERR("Failed to calculate battery percentage");
+	}
 }
 
-void log_battery_charging_state(bool is_charging)
+void log_charging_state(bool is_charging)
 {
 	LOG_INF("Charger %s", is_charging ? "connected" : "disconnected");
 }
@@ -37,30 +43,40 @@ void log_battery_charging_state(bool is_charging)
 int main(void)
 {
 	int ret = 0;
-	k_msleep(1000); // Gives time for the terminal to connect to catch LOG's
+	k_msleep(1000); // Gives time for the terminal to connect to catch logs
 
-	ret |= battery_init();
-	ret |= battery_register_charging_callback(log_battery_charging_state);
-	ret |= battery_register_sample_callback(log_battery_millivolt);
-
+	ret = battery_init();
 	if (ret)
 	{
-		LOG_ERR("Failed to initialize (error %d)", ret);
-	}
-	else
-	{
-		LOG_INF("Initialized");
+		LOG_ERR("Failed to initialize battery management (error %d)", ret);
+		return ret;
 	}
 
-	// This is getting one sample only
+	ret = battery_register_charging_callback(log_charging_state);
+	if (ret)
+	{
+		LOG_ERR("Failed to register charging callback (error %d)", ret);
+		return ret;
+	}
+
+	ret = battery_register_sample_callback(log_battery_voltage);
+	if (ret)
+	{
+		LOG_ERR("Failed to register sample callback (error %d)", ret);
+		return ret;
+	}
+
+	// Take a one-time sample
 	battery_sample_once();
+
+	// Start periodic sampling every 1000 ms
+	battery_start_sampling(1000);
 
 	while (1)
 	{
-		battery_start_sampling(1000);
 		k_sleep(K_SECONDS(10));
-		battery_stop_sampling();
-		k_sleep(K_SECONDS(5));
+		// You can stop periodic sampling if needed
+		// battery_stop_sampling();
 	}
 
 	return 0;

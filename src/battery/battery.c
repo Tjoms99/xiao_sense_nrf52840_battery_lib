@@ -24,9 +24,6 @@
 #include <zephyr/logging/log.h>
 LOG_MODULE_REGISTER(battery, LOG_LEVEL_INF);
 
-static K_THREAD_STACK_DEFINE(battery_workq_stack_area,
-                             1024);
-
 #define GPIO_BATTERY_CHARGE_SPEED 13
 #define GPIO_BATTERY_CHARGING_ENABLE 17
 #define GPIO_BATTERY_READ_ENABLE 14
@@ -174,7 +171,7 @@ static void sample_periodic_handler(struct k_work *work)
     run_sample_ready_callbacks(millivolt);
 
 reschedule:
-    k_work_reschedule_for_queue(&battery_workq, &sample_periodic_work, K_MSEC(sampling_interval_ms));
+    k_work_reschedule(&sample_periodic_work, K_MSEC(sampling_interval_ms));
 }
 
 static void sample_once_handler(struct k_work *work)
@@ -250,9 +247,14 @@ int battery_get_millivolt(uint16_t *battery_millivolt)
 
     // ADC measure
     uint16_t adc_vref = adc_ref_internal(adc_battery_dev);
-    int adc_mv = 0;
 
-    k_mutex_lock(&battery_mut, K_FOREVER);
+    ret = k_mutex_lock(&battery_mut, K_SECONDS(10));
+    if (ret < 0)
+    {
+        LOG_ERR("Cannot get battery voltage as mutex is locked");
+        return ret;
+    }
+
     ret |= adc_read(adc_battery_dev, &sequence);
 
     if (ret)
@@ -260,14 +262,16 @@ int battery_get_millivolt(uint16_t *battery_millivolt)
         LOG_WRN("ADC read failed (error %d)", ret);
     }
 
+    uint32_t adc_sum = 0;
     // Get average sample value.
     for (uint8_t sample = 0; sample < ADC_TOTAL_SAMPLES; sample++)
     {
-        adc_mv += sample_buffer[sample]; // ADC value, not millivolt yet.
+        adc_sum += sample_buffer[sample]; // ADC value, not millivolt yet.
     }
-    adc_mv /= ADC_TOTAL_SAMPLES;
+    uint32_t adc_average = adc_sum / ADC_TOTAL_SAMPLES;
 
     // Convert ADC value to millivolts
+    uint32_t adc_mv = adc_average;
     ret |= adc_raw_to_millivolts(adc_vref, ADC_GAIN, ADC_RESOLUTION, &adc_mv);
 
     // Calculate battery voltage.
@@ -329,8 +333,14 @@ int battery_get_percentage(uint8_t *battery_percentage, uint16_t battery_millivo
 
 int battery_start_sampling(uint32_t interval_ms)
 {
+    if (interval_ms == 0)
+    {
+        LOG_ERR("Sampling interval must be greater than zero");
+        return -EINVAL;
+    }
+
     sampling_interval_ms = interval_ms;
-    k_work_schedule_for_queue(&battery_workq, &sample_periodic_work, K_MSEC(interval_ms));
+    k_work_schedule(&sample_periodic_work, K_MSEC(interval_ms));
 
     LOG_INF("Start sampling battery voltage at %d ms", interval_ms);
     return 0;
@@ -345,7 +355,7 @@ int battery_stop_sampling(void)
 
 int battery_sample_once(void)
 {
-    k_work_submit_to_queue(&battery_workq, &sample_once_work);
+    k_work_submit(&sample_once_work);
     return 0;
 }
 
@@ -401,9 +411,7 @@ int battery_init()
         return ret;
     }
 
-    // Battery work and work queue setup
-    k_work_queue_start(&battery_workq, battery_workq_stack_area,
-                       K_THREAD_STACK_SIZEOF(battery_workq_stack_area), CONFIG_SYSTEM_WORKQUEUE_PRIORITY, NULL);
+    // Battery workers
     k_work_init_delayable(&sample_periodic_work, sample_periodic_handler);
     k_work_init(&sample_once_work, sample_once_handler);
 
