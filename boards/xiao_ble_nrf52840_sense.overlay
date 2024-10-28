@@ -1,0 +1,9 @@
+/ {
+	xiao_ble_battery_dev: xiao_ble_battery_dev {
+		compatible = "xiao-ble-battery";
+		charging-enable-gpios = <&gpio0 17 GPIO_ACTIVE_LOW>;
+		read-enable-gpios = <&gpio0 14 GPIO_ACTIVE_LOW>;
+		charge-speed-gpios = <&gpio0 13 GPIO_ACTIVE_LOW>;
+		adc-channel = <NRF_SAADC_AIN7>;
+	};
+};

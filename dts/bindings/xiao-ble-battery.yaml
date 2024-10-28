@@ -1,0 +1,74 @@
+description: binding for XIAO BLE Battery Management Library
+
+compatible: "xiao-ble-battery"
+
+properties:
+  charging-enable-gpios:
+    type: phandle-array
+    required: true
+    description: |
+      GPIO used to enable charging
+
+  read-enable-gpios:
+    type: phandle-array
+    required: true
+    description: GPIO used to enable the readout of the charging voltage
+
+  charge-speed-gpios:
+    type: phandle-array
+    required: true
+    description: GPIO used to select the charging speed (high = 100mA, low = 50mA)
+
+  adc-input-id:
+    type: int
+    default: 7
+    description: ADC channel id
+
+  adc-gain:
+    type: int
+    default: 0
+    description: ADC channel gain factor. ADC-reference * 6 = 3.6V
+
+  adc-reference:
+    type: int
+    default: 4
+    description: ADC reference. usually 0.6V.
+
+  adc-channel:
+    type: int
+    required: true
+    description: ADC channel to read out the battery voltage. Usually AIN7.
+
+  adc-channel-id:
+    type: int
+    default: 7
+    description: ADC channel to read out the battery voltage
+
+  adc-resolution:
+    type: int
+    default: 12
+    description: ADC resolution
+
+  adc-sample-interval:
+    type: int
+    default: 500
+    description: defines the time between each sample in [us].
+
+  adc-total-samples:
+    type: int
+    default: 10
+    description: |
+      Change this to a higher number for better averages
+      Note that increasing this holds up the thread / ADC for longer.
+
+  adc-acquisition-time:
+      type: int
+      default: 0
+      description: ADC Acquisition time
+
+  battery-callbacks-max:
+      type: int
+      default: 3
+      description: |
+        Defines the number of battery callbacks.
+        Feel free to increas it if necessary.
