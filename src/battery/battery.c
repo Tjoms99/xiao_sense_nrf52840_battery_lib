@@ -25,11 +25,11 @@
 
 LOG_MODULE_REGISTER(battery, LOG_LEVEL_INF);
 
-#if !DT_NODE_EXISTS(DT_NODELABEL(xio_ble_battery_dev))
-#error "Overlay for xio_ble_battery_dev node not properly defined."
+#if !DT_NODE_EXISTS(DT_NODELABEL(xiao_ble_battery_dev))
+#error "Overlay for xiao_ble_battery_dev node not properly defined."
 #endif
 
-#define BATTERY_NODE DT_NODELABEL(xio_ble_battery_dev)
+#define BATTERY_NODE DT_NODELABEL(xiao_ble_battery_dev)
 #define BATTERY_CALLBACK_MAX DT_PROP(BATTERY_NODE, battery_callbacks_max)
 
 // Change this to a higher number for better averages
