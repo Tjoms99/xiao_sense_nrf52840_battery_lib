@@ -8,7 +8,7 @@
 
 ## Overview
 
-This library is designed to manage the battery charging functionality of the XIAO BLE and XIAO BLE Sense board. It supports the following features for a 3.7V LiPo battery:
+This library is designed to manage the battery charging functionality of the [XIAO nRF52840 aka XIAO BLE](https://www.seeedstudio.com/Seeed-XIAO-BLE-nRF52840-p-5201.html) and [XIAO nRF52840 Sense aka XIAO BLE Sense](https://www.seeedstudio.com/Seeed-XIAO-BLE-Sense-nRF52840-p-5253.html) board. It supports the following features for a 3.7V LiPo battery:
 
 - Reading battery voltage.
 - Calculating battery capacity as a percentage.
