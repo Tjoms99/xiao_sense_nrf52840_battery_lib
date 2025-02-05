@@ -82,7 +82,6 @@ static const struct gpio_dt_spec read_enable = GPIO_DT_SPEC_GET_OR(BATTERY_NODE,
 static const struct gpio_dt_spec charge_speed = GPIO_DT_SPEC_GET_OR(BATTERY_NODE, charge_speed_gpios, {0});
 
 // Battery work and work queue
-static struct k_work_q battery_workq;
 static struct k_work_delayable sample_periodic_work;
 static struct k_work sample_once_work;
 
@@ -158,7 +157,7 @@ static void charging_callback_handler(const struct device *dev,
                                       struct gpio_callback *cb,
                                       uint32_t pins)
 {
-    k_work_submit_to_queue(&battery_workq, &charging_interrupt_work);
+    k_work_submit(&charging_interrupt_work);
 }
 
 static void sample_periodic_handler(struct k_work *work)
