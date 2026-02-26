@@ -143,7 +143,7 @@ static int battery_enable_read()
 
 static void run_charging_callbacks(struct k_work *work)
 {
-    bool is_charging = gpio_pin_get_dt(&charging_enable);
+    bool is_charging = battery_is_charging();
     LOG_DBG("Charger %s", is_charging ? "connected" : "disconnected");
 
     for (uint8_t callback = 0; callback < charging_callbacks_registered; callback++)
@@ -387,6 +387,11 @@ int battery_sample_once(void)
     return 0;
 }
 
+bool battery_is_charging(void)
+{
+    return gpio_pin_get_dt(&charging_enable);
+}
+
 int battery_init()
 {
     int ret = 0;
@@ -462,7 +467,7 @@ int battery_init()
     gpio_add_callback_dt(&charging_enable, &charging_callback);
 
     // Lets check the current charging status
-    bool is_charging = gpio_pin_get_dt(&charging_enable);
+    bool is_charging = battery_is_charging();
     LOG_INF("Charger %s", is_charging ? "connected" : "disconnected");
 
     is_initialized = true;
