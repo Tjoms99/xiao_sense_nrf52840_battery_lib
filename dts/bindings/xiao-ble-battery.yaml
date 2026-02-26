@@ -61,6 +61,14 @@ properties:
       Change this to a higher number for better averages
       Note that increasing this holds up the thread / ADC for longer.
 
+  adc-filtering-algorithm:
+    type: string
+    default: "average"
+    description: ADC sample filtering algorithm
+    enum:
+      - "average"
+      - "trimmed-mean"
+
   adc-acquisition-time:
       type: int
       default: 0

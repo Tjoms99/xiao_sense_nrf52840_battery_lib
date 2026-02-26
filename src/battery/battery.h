@@ -103,6 +103,13 @@ int battery_stop_sampling(void);
 int battery_sample_once(void);
 
 /**
+ * @brief Check if the battery is charging.
+ *
+ * @retval true if charging.
+ */
+bool battery_is_charging(void);
+
+/**
  * @brief Initialize the battery management system.
  *
  * @retval 0 if successful. Negative errno number on error.

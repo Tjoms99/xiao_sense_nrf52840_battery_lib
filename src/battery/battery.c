@@ -39,13 +39,21 @@ LOG_MODULE_REGISTER(battery, LOG_LEVEL_INF);
 //--------------------------------------------------------------
 // ADC setup
 
-#define ADC_RESOLUTION          DT_PROP(BATTERY_NODE, adc_resolution) 
-#define ADC_CHANNEL             DT_PROP(BATTERY_NODE, adc_channel_id) 
-#define ADC_PORT                DT_PROP(BATTERY_NODE, adc_channel) 
+#define ADC_FILTERING_ALGORITHM_AVERAGE      0
+#define ADC_FILTERING_ALGORITHM_TRIMMED_MEAN 1
+
+#define ADC_RESOLUTION          DT_PROP(BATTERY_NODE, adc_resolution)
+#define ADC_CHANNEL             DT_PROP(BATTERY_NODE, adc_channel_id)
+#define ADC_PORT                DT_PROP(BATTERY_NODE, adc_channel)
 #define ADC_REFERENCE           DT_PROP(BATTERY_NODE, adc_reference)
-#define ADC_GAIN                DT_PROP(BATTERY_NODE, adc_gain) 
+#define ADC_GAIN                DT_PROP(BATTERY_NODE, adc_gain)
 #define ADC_SAMPLE_INTERVAL_US  DT_PROP(BATTERY_NODE, adc_sample_interval)
-#define ADC_ACQUISITION_TIME    DT_PROP(BATTERY_NODE, adc_acquisition_time) 
+#define ADC_ACQUISITION_TIME    DT_PROP(BATTERY_NODE, adc_acquisition_time)
+#define ADC_FILTERING_ALGORITHM DT_ENUM_IDX(BATTERY_NODE, adc_filtering_algorithm)
+
+#if ADC_FILTERING_ALGORITHM == ADC_FILTERING_ALGORITHM_TRIMMED_MEAN
+#include <stdlib.h>
+#endif
 
 static struct adc_channel_cfg channel_7_cfg = {
     .gain = ADC_GAIN,
@@ -135,7 +143,7 @@ static int battery_enable_read()
 
 static void run_charging_callbacks(struct k_work *work)
 {
-    bool is_charging = gpio_pin_get_dt(&charging_enable);
+    bool is_charging = battery_is_charging();
     LOG_DBG("Charger %s", is_charging ? "connected" : "disconnected");
 
     for (uint8_t callback = 0; callback < charging_callbacks_registered; callback++)
@@ -190,6 +198,13 @@ static void sample_once_handler(struct k_work *work)
     // Run all the callbacks waiting for voltage readings.
     run_sample_ready_callbacks(millivolt);
 }
+
+#if ADC_FILTERING_ALGORITHM == ADC_FILTERING_ALGORITHM_TRIMMED_MEAN
+static int sample_buffer_compare(const void *a, const void *b)
+{
+    return (*(int16_t *)a - *(int16_t *)b);
+}
+#endif
 
 //------------------------------------------------------------------------------------------
 // Public functions
@@ -266,12 +281,22 @@ int battery_get_millivolt(uint16_t *battery_millivolt)
     }
 
     uint32_t adc_sum = 0;
+#if ADC_FILTERING_ALGORITHM == ADC_FILTERING_ALGORITHM_TRIMMED_MEAN
+    // Get 25% trimmed mean sample value.
+    qsort(sample_buffer, ADC_TOTAL_SAMPLES, sizeof(int16_t), sample_buffer_compare);
+    for (uint8_t sample = ADC_TOTAL_SAMPLES / 4; sample < ADC_TOTAL_SAMPLES / 4 + ADC_TOTAL_SAMPLES / 2; sample++)
+    {
+        adc_sum += sample_buffer[sample]; // ADC value, not millivolt yet.
+    }
+    uint32_t adc_average = adc_sum / (ADC_TOTAL_SAMPLES / 2);
+#else
     // Get average sample value.
     for (uint8_t sample = 0; sample < ADC_TOTAL_SAMPLES; sample++)
     {
         adc_sum += sample_buffer[sample]; // ADC value, not millivolt yet.
     }
     uint32_t adc_average = adc_sum / ADC_TOTAL_SAMPLES;
+#endif
 
     // Convert ADC value to millivolts
     uint32_t adc_mv = adc_average;
@@ -362,6 +387,11 @@ int battery_sample_once(void)
     return 0;
 }
 
+bool battery_is_charging(void)
+{
+    return gpio_pin_get_dt(&charging_enable);
+}
+
 int battery_init()
 {
     int ret = 0;
@@ -437,7 +467,7 @@ int battery_init()
     gpio_add_callback_dt(&charging_enable, &charging_callback);
 
     // Lets check the current charging status
-    bool is_charging = gpio_pin_get_dt(&charging_enable);
+    bool is_charging = battery_is_charging();
     LOG_INF("Charger %s", is_charging ? "connected" : "disconnected");
 
     is_initialized = true;
